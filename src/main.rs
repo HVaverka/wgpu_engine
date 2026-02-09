@@ -3,6 +3,7 @@ use winit::event_loop::{self, EventLoop};
 use crate::{core::{core_app::CoreApp, user_app::UserApp as _}, user_app::app::App};
 
 mod core;
+mod gpu;
 mod user_app;
 
 fn main() -> Result<(), winit::error::EventLoopError>{
