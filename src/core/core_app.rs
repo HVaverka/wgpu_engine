@@ -8,21 +8,26 @@ use winit::{
     window::{Window, WindowId},
 };
 
-pub struct CoreApp {
+use crate::core::user_app::UserApp;
+
+pub struct CoreApp<T: UserApp> {
     window: Option<Arc<Window>>,
+
+    user_app: T,
     exit_requested: bool,
 }
 
-impl CoreApp {
-    pub fn new() -> Self {
+impl<T: UserApp> CoreApp<T> {
+    pub fn new(user_upp: T) -> Self {
         Self {
             window: None,
+            user_app: user_upp,
             exit_requested: false,
         }
     }
 }
 
-impl ApplicationHandler for CoreApp {
+impl<T: UserApp> ApplicationHandler for CoreApp<T> {
     // for mobile and wasm - not used, only for window creation
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
@@ -58,7 +63,7 @@ impl ApplicationHandler for CoreApp {
 
 fn create_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
     let win_attr = Window::default_attributes()
-        .with_title("VoxelGame")
+        .with_title("wGPU Engine")
         .with_resizable(false)
         .with_inner_size(winit::dpi::LogicalSize::new(800, 600));
     // use Arc.
