@@ -22,20 +22,20 @@ impl<'window> WgpuCtx<'window> {
         let surface = instance.create_surface(Arc::clone(&window)).unwrap();
 
         let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptionsBase { 
+            .request_adapter(&wgpu::RequestAdapterOptionsBase {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 force_fallback_adapter: false,
-                compatible_surface: Some(&surface)
+                compatible_surface: Some(&surface),
             })
             .await
             .expect("Failed to find appropriate adapter");
 
-        let (device, queue) = adapter.request_device(
-            &DeviceDescriptor {
+        let (device, queue) = adapter
+            .request_device(&DeviceDescriptor {
                 label: Some("Device"),
                 required_features: Features::empty(),
                 required_limits: adapter.limits(),
-                experimental_features: unsafe {ExperimentalFeatures::enabled()},
+                experimental_features: unsafe { ExperimentalFeatures::enabled() },
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
             })

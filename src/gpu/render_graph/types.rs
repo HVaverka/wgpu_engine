@@ -1,60 +1,108 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 
+use slotmap::new_key_type;
 use wgpu::{BindGroupLayout, CommandEncoder};
 
-#[derive(Clone, Copy)]
-pub struct ResourceHandle(pub u32);
-#[derive(Clone, Copy)]
-pub struct PipelineHandle(pub u32);
+new_key_type! {
+    pub struct BufferHandle;
+    pub struct TextureHandle;
+    pub struct PipelineHandle;
+}
 
-
-pub enum PassType {
+pub enum NodeType {
     RenderPass,
     ComputePass,
     Transfer,
 }
 
-pub struct Pass {
+pub struct Node {
     pub name: String,
-    pub kind: PassType,
-    pub inputs: Vec<PassInput>,
-    pub outputs: Vec<PassOutput>,
+    pub kind: NodeType,
+    pub inputs: Vec<NodeInput>,
+    pub outputs: Vec<NodeOutput>,
 
     pub pipeline: Option<PipelineHandle>,
 
-    pub execute: Box<dyn FnOnce(&mut CommandEncoder)>
+    pub execute: Option<Box<dyn FnOnce(&mut CommandEncoder)>>,
 }
 
-pub struct PassInput {
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+pub enum ResourceHandle {
+    Buffer(BufferHandle),
+    Texture(TextureHandle),
+}
+
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+pub struct BufferDesc {
+    pub size: u64,
+    pub usage: wgpu::BufferUsages,
+    pub mapped_at_creation: bool,
+}
+
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+pub struct TextureDesc {
+    size: wgpu::Extent3d,
+    // mip_level_count: u32 = 1,
+    // sample_count: u32 = 1,
+    dimension: wgpu::TextureDimension,
+    format: wgpu::TextureFormat,
+    usage: wgpu::TextureUsages,
+    // view_formats: &'a [] = base is Rgba8SnormSrgb
+}
+pub struct NodeInput {
     pub binding: u32,
     pub resource: ResourceHandle,
 }
-pub struct PassOutput {
+pub struct NodeOutput {
     pub binding: u32,
     pub resource: ResourceHandle,
 }
+#[derive(Hash, PartialEq, Eq)]
 pub enum ResourceType {
     Buffer,
     Texture,
 }
 
 pub enum PipelineType {
-    Render{
-        state: bool,
-    },
+    Render { state: bool },
     Compute,
 }
-pub struct ResourceDesc {
-    name: String,
-    kind: ResourceType,
-    size: u64,
-    dimensions: (u32, u32),
-    is_persistent: bool,
+
+pub struct UploadOp {
+    pub target: ResourceHandle,
+    pub offset: u64,
+    pub data: Vec<u8>,
 }
 
-pub struct PipelineDesc {
-    name: String,
-    shader_path: PathBuf,
-    entry_point: String,
-    kind: PipelineType,
+pub struct DownloadOp {
+    pub source: ResourceHandle,
+    pub offset: u64,
+    pub size: u64,
+    pub data: Vec<u8>,
+}
+
+pub struct CopyOp {
+    pub src: ResourceHandle,
+    pub dst: ResourceHandle,
+    pub size: u64,
+    pub src_offset: u64,
+    pub dst_offset: u64,
+}
+
+pub struct ReadbackTicket<T> {
+    data: Arc<Mutex<Option<Vec<u8>>>>,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T: bytemuck::Pod> ReadbackTicket<T> {
+    pub fn try_get(&self) -> Option<T> {
+        if let Ok(lock) = self.data.try_lock() {
+            lock.as_ref().map(|bytes| *bytemuck::from_bytes::<T>(bytes))
+        } else {
+            None
+        }
+    }
 }
