@@ -1,17 +1,12 @@
 use std::collections::{HashMap, VecDeque};
 
 use bytemuck::{Pod, Zeroable};
-use slotmap::{SecondaryMap, SlotMap};
 use wgpu::{CommandEncoder, RenderPassDescriptor, wgt::CommandEncoderDescriptor};
 
 use crate::gpu::render_graph::registry::InstanceRegistry;
-use crate::gpu::render_graph::types::{BufferDesc, TextureDesc};
-use crate::gpu::render_graph::{
-    graph,
-    types::{
-        BufferHandle, CopyOp, DownloadOp, Node, NodeInput, NodeOutput, NodeType,
-        PipelineHandle, ReadbackTicket, ResourceHandle, TextureHandle, UploadOp,
-    },
+use crate::gpu::render_graph::types::{
+    BufferDesc, BufferHandle, CopyOp, DownloadOp, Node, NodeInput, NodeOutput, NodeType,
+    PipelineHandle, ResourceHandle, TextureDesc, TextureHandle, UploadOp,
 };
 
 pub struct RenderGraph {
@@ -123,7 +118,7 @@ impl RenderGraph {
 
         let node_count = self.nodes.len();
 
-        let mut edges:Vec<Vec<usize>> = vec![Vec::new(); node_count];
+        let mut edges: Vec<Vec<usize>> = vec![Vec::new(); node_count];
         let mut dependency_count = vec![0; node_count];
 
         for (reader_idx, node) in self.nodes.iter().enumerate() {

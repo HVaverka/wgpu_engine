@@ -1,5 +1,5 @@
 pub mod graph;
 pub mod types;
 
-mod resource_pool;
 pub mod registry;
+mod resource_pool;

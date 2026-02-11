@@ -10,8 +10,7 @@ impl UserApp for App {
         App {}
     }
 
-    fn update(&mut self, render_graph: &mut RenderGraph) {
-    }
+    fn update(&mut self, render_graph: &mut RenderGraph) {}
 
     fn render() {}
 

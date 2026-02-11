@@ -1,13 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::Hash;
 
 use slotmap::{DefaultKey, SlotMap};
-use wgpu::wgc::api::Vulkan;
-
-
 // This holds all unique resources and holds all unique instances to them
-pub struct InstanceRegistry<Handle, Value> 
-where 
+pub struct InstanceRegistry<Handle, Value>
+where
     Handle: slotmap::Key,
     Value: Clone,
 {
@@ -16,10 +13,10 @@ where
     instance: SlotMap<Handle, DefaultKey>,
 }
 
-impl<Handle, Value> InstanceRegistry<Handle, Value> 
+impl<Handle, Value> InstanceRegistry<Handle, Value>
 where
     Handle: slotmap::Key,
-    Value: Hash + Eq + Clone + Copy
+    Value: Hash + Eq + Clone + Copy,
 {
     pub fn new() -> Self {
         InstanceRegistry {
