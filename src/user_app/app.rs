@@ -1,8 +1,8 @@
-use wgpu::RenderPipelineDescriptor;
+use wgpu::{RenderPassDescriptor, RenderPipelineDescriptor};
 
 use crate::{
     core::user_app::UserApp,
-    gpu::render_graph::{self, graph::RenderGraph, resource_pool::{RenderPipelineDesc, Resources, VertexState}, types::RenderPipelineHandle},
+    gpu::render_graph::{self, graph::RenderGraph, resource_pool::{RenderPipelineDesc, Resources, VertexState}, types::{PipelineHandle, NodeType, RenderPipelineHandle}},
 };
 
 pub struct App {
@@ -53,7 +53,22 @@ impl UserApp for App {
         }
     }
 
-    fn update(&mut self, render_graph: &mut RenderGraph) {}
+    fn update(&mut self, render_graph: &mut RenderGraph) {
+        render_graph.add_pass("Pass", NodeType::RenderPass)
+            .use_pipeline(PipelineHandle::Render(self.render_pipeline))
+            .execute(|encoder: &mut wgpu::CommandEncoder| {
+                {
+                    let pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                }
+            });
+    }
 
     fn render() {}
 

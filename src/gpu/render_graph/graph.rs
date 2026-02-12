@@ -1,12 +1,14 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use slotmap::SparseSecondaryMap;
 use wgpu::{CommandEncoder, RenderPassDescriptor, wgt::CommandEncoderDescriptor};
 
 use crate::gpu::render_graph::registry::InstanceRegistry;
+use crate::gpu::render_graph::resource_pool::Resources;
 use crate::gpu::render_graph::types::{
-    BufferDesc, BufferHandle, CopyOp, DownloadOp, Node, NodeInput, NodeOutput, NodeType, PipelineHandle, ResourceHandle, ResourceType, TextureDesc, TextureHandle, UploadOp
+    BufferDesc, BufferHandle, CopyOp, DownloadOp, Node, NodeInput, NodeOutput, NodeType, PassContext, PipelineHandle, ResourceHandle, ResourceType, TextureDesc, TextureHandle, UploadOp
 };
 
 pub struct RenderGraph {
@@ -14,6 +16,9 @@ pub struct RenderGraph {
 
     textures: InstanceRegistry<TextureHandle, TextureDesc>,
     buffers: InstanceRegistry<BufferHandle, BufferDesc>,
+
+    texture_cache: HashMap<TextureDesc, CachedTexture>,
+    buffer_cache: HashMap<BufferDesc, CachedBuffer>,
 }
 
 impl RenderGraph {
@@ -23,6 +28,9 @@ impl RenderGraph {
 
             textures: InstanceRegistry::new(),
             buffers: InstanceRegistry::new(),
+
+            texture_cache: HashMap::new(),
+            buffer_cache: HashMap::new(),
         }
     }
 
@@ -47,18 +55,10 @@ impl RenderGraph {
     }
 
     pub fn add_pass(&mut self, name: &str, kind: NodeType) -> PassBuilder {
-        PassBuilder {
-            graph: self,
-            name: name.into(),
-            kind: kind,
-            inputs: Vec::new(),
-            outputs: Vec::new(),
-            next_bind_idx: 0,
-            pipeline: None,
-        }
+        PassBuilder::new(self, name, kind)
     }
 
-    pub fn compile(&self, device: &mut wgpu::Device) {
+    pub fn compile(&mut self, device: &wgpu::Device, resources: &Resources) {
         let order = self.get_node_order();
         if let Err(()) = order {
             return;
@@ -72,7 +72,6 @@ impl RenderGraph {
         for &i in order.iter() {
             let node = &self.nodes[i];
 
-            // Helper to process a handle
             let mut process_resource = |res: &ResourceHandle| {
                 match res {
                     ResourceHandle::Buffer(handle) => {
@@ -95,7 +94,7 @@ impl RenderGraph {
             for input in &node.inputs { process_resource(&input.resource); }
             for output in &node.outputs { process_resource(&output.resource); }
         }
-        
+
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Command encoder"),
         });
@@ -105,7 +104,7 @@ impl RenderGraph {
 
             match node.kind {
                 NodeType::RenderPass => {
-                    self.compile_render_pass(node, device, &mut encoder);
+                    self.compile_render_pass(idx, device, &mut encoder);
                 }
                 NodeType::ComputePass => {}
                 NodeType::Transfer => {}
@@ -116,21 +115,98 @@ impl RenderGraph {
     fn compile_tranfer() {}
 
     fn compile_render_pass(
-        &self,
-        node: &Node,
-        device: &mut wgpu::Device,
+        &mut self,
+        node_idx: usize,
+        device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
     ) {
-        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Render pass"),
-            color_attachments: &[],
-            depth_stencil_attachment: None,
+        let node = &mut self.nodes[node_idx];
+        let mut frame_views = Vec::new();
+        let mut color_attachments = Vec::new();
+
+        for output in node.outputs.iter() {
+            let ResourceHandle::Texture(handle) = output.resource else {continue;};
+
+            let desc = self.textures.get(handle).expect("Texture does not exist");
+            
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(&output.binding.to_string()),
+                size: desc.size,
+                mip_level_count: 0,
+                sample_count: 0,
+                dimension: desc.dimension,
+                format: desc.format,
+                usage: desc.usage,
+                view_formats: &[],
+            });
+
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            frame_views.push(view);
+
+            self.texture_cache.insert(*desc, CachedTexture {
+                texture: texture,
+            });
+        }
+
+        for view in frame_views.iter() {
+            color_attachments.push(Some(wgpu::RenderPassColorAttachment {
+                view: view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            }));
+        }
+
+        let depth_data = node.depth_texture.map(|handle| {
+            let ResourceHandle::Texture(h) = handle else { panic!("Depth must be a texture") };
+            let desc = self.textures.get(h).expect("Depth texture desc missing");
+            
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Depth texture"),
+                size: desc.size,
+                mip_level_count: 0,
+                sample_count: 0,
+                dimension: desc.dimension,
+                format: desc.format,
+                usage: desc.usage,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            
+            (texture, view)
+        });
+        // todo safe the depth texture for reuse
+
+        let depth_stencil_attachment = depth_data.as_ref().map(|(_tex, view)| {
+            wgpu::RenderPassDepthStencilAttachment {
+                view, // This is a &TextureView
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }
+        });
+
+        let render_pass_descriptor = wgpu::RenderPassDescriptor {
+            label: Some(&node.name),
+            color_attachments: &color_attachments,
+            depth_stencil_attachment: depth_stencil_attachment,
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
-        });
+        };
 
-        //render_pass.set_pipeline(self.pipelines.);
+
+        let mut render_pass = encoder.begin_render_pass(&render_pass_descriptor);
+
+        
+        if let Some(ctx) = node.execute.take() {
+            ctx(PassContext::Render(&mut render_pass));
+        }
     }
 
     fn get_node_order(&self) -> Result<Vec<usize>, ()> {
@@ -244,6 +320,7 @@ impl<'a> TransferBuilder<'a> {
             kind: self.kind,
             inputs: Vec::new(),
             outputs: Vec::new(),
+            depth_texture: None,
             pipeline: None,
             execute: None,
         };
@@ -259,12 +336,26 @@ pub struct PassBuilder<'a> {
 
     inputs: Vec<NodeInput>,
     outputs: Vec<NodeOutput>,
+    depth_texture: Option<ResourceHandle>,
     next_bind_idx: u32,
 
     pipeline: Option<PipelineHandle>,
 }
 
 impl<'a> PassBuilder<'a> {
+    pub fn new(graph: &'a mut RenderGraph, name: &str, kind: NodeType) -> Self {
+        PassBuilder {
+            graph: graph,
+            name: name.into(),
+            kind: kind,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            depth_texture: None,
+            next_bind_idx: 0,
+            pipeline: None,
+        }
+    }
+
     pub fn read(mut self, resource: ResourceHandle) -> Self {
         let binding = self.get_next_bind_idx();
         self.inputs.push(NodeInput { binding, resource });
@@ -284,6 +375,11 @@ impl<'a> PassBuilder<'a> {
         self
     }
 
+    pub fn write_depth(mut self, resource: ResourceHandle) -> Self {
+        self.depth_texture = Some(resource);
+        self
+    }
+
     pub fn use_pipeline(mut self, pipeline: PipelineHandle) -> Self {
         self.pipeline = Some(pipeline);
         self
@@ -291,13 +387,14 @@ impl<'a> PassBuilder<'a> {
 
     pub fn execute<F>(mut self, func: F)
     where
-        F: FnOnce(&mut CommandEncoder) + 'static,
+        F: FnOnce(PassContext) + 'static,
     {
         let pass = Node {
             name: self.name,
             kind: self.kind,
             inputs: self.inputs,
             outputs: self.outputs,
+            depth_texture: self.depth_texture,
             pipeline: self.pipeline,
             execute: Some(Box::new(func)),
         };
@@ -320,3 +417,11 @@ struct ResourceLifetime {
     first_use: u32,
     last_use: u32,
 }
+
+struct CachedTexture {
+    texture: wgpu::Texture,
+}
+struct CachedBuffer {
+    buffer: wgpu::Buffer,
+}
+

@@ -36,4 +36,12 @@ where
             self.instance.insert(key)
         }
     }
+    
+    pub fn get(&self, handle: Handle) -> Option<&Value> {
+        if let Some(&key) = self.instance.get(handle) {
+            self.map.get(key)
+        } else {
+            None
+        }
+    }
 }

@@ -24,12 +24,14 @@ pub enum NodeType {
 pub struct Node {
     pub name: String,
     pub kind: NodeType,
+
     pub inputs: Vec<NodeInput>,
     pub outputs: Vec<NodeOutput>,
+    pub depth_texture: Option<ResourceHandle>,
 
     pub pipeline: Option<PipelineHandle>,
 
-    pub execute: Option<Box<dyn FnOnce(&mut CommandEncoder)>>,
+    pub execute: Option<Box<dyn FnOnce(PassContext<'_, '_>)>>,
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
@@ -47,12 +49,12 @@ pub struct BufferDesc {
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct TextureDesc {
-    size: wgpu::Extent3d,
+    pub size: wgpu::Extent3d,
     // mip_level_count: u32 = 1,
     // sample_count: u32 = 1,
-    dimension: wgpu::TextureDimension,
-    format: wgpu::TextureFormat,
-    usage: wgpu::TextureUsages,
+    pub dimension: wgpu::TextureDimension,
+    pub format: wgpu::TextureFormat,
+    pub usage: wgpu::TextureUsages,
     // view_formats: &'a [] = base is Rgba8SnormSrgb
 }
 pub struct NodeInput {
@@ -108,4 +110,8 @@ impl<T: bytemuck::Pod> ReadbackTicket<T> {
             None
         }
     }
+}
+pub enum PassContext<'a, 'b> {
+    Render(&'b mut wgpu::RenderPass<'a>),
+    Compute(&'b mut wgpu::ComputePass<'a>),
 }
