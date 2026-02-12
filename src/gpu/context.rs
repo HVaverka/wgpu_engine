@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use wgpu::{ExperimentalFeatures, Features, wgc::instance, wgt::DeviceDescriptor};
+use wgpu::{ExperimentalFeatures, Features, wgc::{device, instance}, wgt::DeviceDescriptor};
 use winit::window::{self, Window};
 
 pub struct WgpuCtx<'window> {
@@ -8,7 +8,7 @@ pub struct WgpuCtx<'window> {
     surface_config: wgpu::SurfaceConfiguration,
 
     adapter: wgpu::Adapter,
-    pub device: wgpu::Device,
+    pub device: Arc<wgpu::Device>,
     pub queue: wgpu::Queue,
 }
 
@@ -50,6 +50,8 @@ impl<'window> WgpuCtx<'window> {
         surface_config.format = wgpu::TextureFormat::Rgba8UnormSrgb;
         surface_config.present_mode = wgpu::PresentMode::AutoVsync;
         surface.configure(&device, &surface_config);
+
+        let device = Arc::new(device);
 
         Self {
             surface,

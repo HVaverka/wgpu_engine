@@ -1,12 +1,12 @@
 use std::collections::{HashMap, VecDeque};
 
 use bytemuck::{Pod, Zeroable};
+use slotmap::SparseSecondaryMap;
 use wgpu::{CommandEncoder, RenderPassDescriptor, wgt::CommandEncoderDescriptor};
 
 use crate::gpu::render_graph::registry::InstanceRegistry;
 use crate::gpu::render_graph::types::{
-    BufferDesc, BufferHandle, CopyOp, DownloadOp, Node, NodeInput, NodeOutput, NodeType,
-    PipelineHandle, ResourceHandle, TextureDesc, TextureHandle, UploadOp,
+    BufferDesc, BufferHandle, CopyOp, DownloadOp, Node, NodeInput, NodeOutput, NodeType, PipelineHandle, ResourceHandle, ResourceType, TextureDesc, TextureHandle, UploadOp
 };
 
 pub struct RenderGraph {
@@ -14,8 +14,6 @@ pub struct RenderGraph {
 
     textures: InstanceRegistry<TextureHandle, TextureDesc>,
     buffers: InstanceRegistry<BufferHandle, BufferDesc>,
-
-    writers: HashMap<ResourceHandle, Vec<NodeHandle>>,
 }
 
 impl RenderGraph {
@@ -25,8 +23,6 @@ impl RenderGraph {
 
             textures: InstanceRegistry::new(),
             buffers: InstanceRegistry::new(),
-
-            writers: HashMap::new(),
         }
     }
 
@@ -70,6 +66,36 @@ impl RenderGraph {
 
         let order = order.unwrap();
 
+        let mut texture_lt: SparseSecondaryMap<TextureHandle, ResourceLifetime> = SparseSecondaryMap::new();
+        let mut buffer_lt: SparseSecondaryMap<BufferHandle, ResourceLifetime> = SparseSecondaryMap::new();
+
+        for &i in order.iter() {
+            let node = &self.nodes[i];
+
+            // Helper to process a handle
+            let mut process_resource = |res: &ResourceHandle| {
+                match res {
+                    ResourceHandle::Buffer(handle) => {
+                        if let Some(lt) = buffer_lt.get_mut(*handle) {
+                            lt.last_use = i as u32;
+                        } else {
+                            buffer_lt.insert(*handle, ResourceLifetime { first_use: i as u32, last_use: i as u32 });
+                        }
+                    },
+                    ResourceHandle::Texture(handle) => {
+                        if let Some(lt) = texture_lt.get_mut(*handle) {
+                            lt.last_use = i as u32;
+                        } else {
+                            texture_lt.insert(*handle, ResourceLifetime { first_use: i as u32, last_use: i as u32 });
+                        }
+                    }
+                }
+            };
+
+            for input in &node.inputs { process_resource(&input.resource); }
+            for output in &node.outputs { process_resource(&output.resource); }
+        }
+        
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Command encoder"),
         });
@@ -288,4 +314,9 @@ impl<'a> PassBuilder<'a> {
 #[derive(Clone, Copy)]
 struct NodeHandle {
     idx: usize,
+}
+
+struct ResourceLifetime {
+    first_use: u32,
+    last_use: u32,
 }

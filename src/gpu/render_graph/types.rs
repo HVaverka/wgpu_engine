@@ -9,7 +9,10 @@ use wgpu::{BindGroupLayout, CommandEncoder};
 new_key_type! {
     pub struct BufferHandle;
     pub struct TextureHandle;
-    pub struct PipelineHandle;
+    pub struct ShaderHandle;
+    pub struct RenderPipelineHandle;
+    pub struct ComputePipelineHandle;
+    pub struct PipelineLayoutHandle;
 }
 
 pub enum NodeType {
@@ -66,9 +69,9 @@ pub enum ResourceType {
     Texture,
 }
 
-pub enum PipelineType {
-    Render { state: bool },
-    Compute,
+pub enum PipelineHandle {
+    Render(RenderPipelineHandle),
+    Compute(ComputePipelineHandle),
 }
 
 pub struct UploadOp {

@@ -8,21 +8,26 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::gpu::render_graph::graph::RenderGraph;
+use crate::{gpu::render_graph::{graph::RenderGraph, resource_pool::Resources}, user_app};
 use crate::{core::user_app::UserApp, gpu::context::WgpuCtx};
 pub struct CoreApp<'window, T: UserApp> {
     window: Option<Arc<Window>>,
     wgpu_ctx: Option<WgpuCtx<'window>>,
-    user_app: T,
+    resources: Option<Resources>,
+    user_app: Option<T>,
     exit_requested: bool,
 }
 
 impl<'window, T: UserApp> CoreApp<'window, T> {
-    pub fn new(user_upp: T) -> Self {
+    pub fn new() -> Self {
         Self {
             window: None,
+
             wgpu_ctx: None,
-            user_app: user_upp,
+            resources: None,
+
+            user_app: None,
+
             exit_requested: false,
         }
     }
@@ -34,11 +39,13 @@ impl<'window, T: UserApp> ApplicationHandler for CoreApp<'window, T> {
         if self.window.is_none() {
             let window = create_window(event_loop);
             let wgpu_ctx = WgpuCtx::new(Arc::clone(&window));
+            let resources = Resources::new(Arc::clone(&wgpu_ctx.device));
 
             window.request_redraw();
 
             self.window = Some(window);
             self.wgpu_ctx = Some(wgpu_ctx);
+            self.resources = Some(resources);
         }
     }
 
@@ -55,7 +62,7 @@ impl<'window, T: UserApp> ApplicationHandler for CoreApp<'window, T> {
             // fixed for now, need draw to get the window on screen
             WindowEvent::RedrawRequested => {
                 // This is where your Render Graph logic will eventually live
-                if let Some(ctx) = &self.wgpu_ctx {
+                if let (Some(ctx), Some(user_app)) = (&self.wgpu_ctx, &mut self.user_app) {
                     // 1. Get the current frame from the swapchain
                     let frame = ctx
                         .surface
@@ -67,7 +74,7 @@ impl<'window, T: UserApp> ApplicationHandler for CoreApp<'window, T> {
 
                     let mut render_graph = RenderGraph::new();
 
-                    self.user_app.update(&mut render_graph);
+                    user_app.update(&mut render_graph);
 
                     // 2. Create a command encoder
                     let mut encoder = ctx
